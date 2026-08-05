@@ -1,18 +1,19 @@
 #--------------------------------------------------------------------------------
-# MONGO
+# MONGO (provided by FerretDB in this demo)
 #--------------------------------------------------------------------------------
 # These `KOBO_MONGO_` settings only affect the mongo container itself and the
 # `wait_for_mongo.bash` init script that runs within the kpi and kobocat
 # containers. To control what KPI/KoboCAT connect to, see `MONGO_DB_URL`.
 KOBO_MONGO_PORT=27017
 KOBO_MONGO_HOST=mongo.kobo.private
-MONGO_INITDB_ROOT_USERNAME=root
-MONGO_INITDB_ROOT_PASSWORD=otter
-MONGO_INITDB_DATABASE=formhub
-KOBO_MONGO_USERNAME=kobo
-KOBO_MONGO_PASSWORD=weasel
+
+# The `MONGO_INITDB_*` and `KOBO_MONGO_USERNAME`/`KOBO_MONGO_PASSWORD` variables
+# used by the upstream `mongo` image are deliberately absent: FerretDB does not
+# run MongoDB's `docker-entrypoint-initdb.d` scripts, and it takes its
+# credentials from the PostgreSQL role in its backing `postgres_ferretdb`
+# container instead. See `docker-compose.backend.yml`.
 MONGO_DB_NAME=formhub
-MONGO_DB_URL=mongodb://kobo:weasel@mongo.kobo.private:27017/formhub
+MONGO_DB_URL=mongodb://ferret:badger@mongo.kobo.private:27017/formhub
 
 #--------------------------------------------------------------------------------
 # POSTGRES

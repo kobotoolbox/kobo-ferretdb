@@ -22,23 +22,48 @@ services:
         aliases:
           - postgres.kobo.private
 
+  # FerretDB's storage engine. This is a stock PostgreSQL image with the
+  # DocumentDB extension preinstalled; FerretDB itself is stateless and keeps
+  # everything here. It is deliberately separate from the `postgres` service
+  # above, which holds the Django databases and runs a different major version.
+  postgres_ferretdb:
+    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    hostname: postgres_ferretdb
+    environment:
+      # FerretDB authenticates clients against PostgreSQL roles, so this
+      # user/password pair is what appears in `MONGO_DB_URL`.
+      - POSTGRES_USER=ferret
+      - POSTGRES_PASSWORD=badger
+      - POSTGRES_DB=postgres
+    volumes:
+      - ./.vols/postgres_ferretdb:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ferret -d postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      kobo-network:
+        aliases:
+          - postgres_ferretdb.kobo.private
+
+  # Stands in for MongoDB. The service keeps the name `mongo` and the
+  # `mongo.kobo.private` alias so that KPI, KoboCAT and `wait_for_mongo.bash`
+  # reach it without knowing the difference.
+  #
+  # None of upstream's `./mongo` entrypoint scripts are mounted here: they
+  # configure a replica set and create users through `mongosh`, which FerretDB
+  # neither needs nor supports. Users come from the PostgreSQL role above.
   mongo:
-    image: mongo:8.0
+    image: ghcr.io/ferretdb/ferretdb:2.7.0
     hostname: mongo
     environment:
-      - MONGO_DATA=/data/db
-    env_file:
-      - ./env/envfiles/domains.txt
-      - ./env/envfiles/databases.txt
-      - ./env/envfiles/aws.txt
-    volumes:
-      - ./.vols/mongo:/data/db
-      - ./backups/mongo:/srv/backups
-      - ./mongo:/kobo-docker-scripts
-      - ./log/mongo:/srv/logs
+      - FERRETDB_POSTGRESQL_URL=postgres://ferret:badger@postgres_ferretdb.kobo.private:5432/postgres
+    depends_on:
+      postgres_ferretdb:
+        condition: service_healthy
     restart: always
-    command: "bash /kobo-docker-scripts/entrypoint.sh"
-    stop_grace_period: 5m
     networks:
       kobo-network:
         aliases:
