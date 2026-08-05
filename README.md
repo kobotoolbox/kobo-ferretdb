@@ -3,42 +3,45 @@
 A minimal, single-host [KoboToolbox](https://www.kobotoolbox.org) deployment that
 uses [FerretDB](https://github.com/FerretDB/FerretDB) in place of MongoDB.
 
-It works, for a narrow definition of "works". You can create a form, deploy it,
-submit data to it, see the submission in the web interface, and export it to XLSX,
-with FerretDB storing the submissions in PostgreSQL and no MongoDB anywhere in the
-stack. Nothing beyond that is tested, and FerretDB's own website has been expired
-since May 2026 — see [Caveats](#caveats).
+No changes are made to the KoboToolbox application, i.e.
+https://github.com/kobotoolbox/kpi. Only to the Docker deployment
+configuration, https://github.com/kobotoolbox/kobo-docker, is modified.
+
+You can create a form, deploy it, submit data to it, see the submission in the
+web interface, and export it to XLSX, with FerretDB storing the submissions in
+PostgreSQL and no MongoDB anywhere in the stack. Nothing beyond that has yet
+been tested.
 
 This is a **demonstration of compatibility, not a production deployment**. Every
-password in this repository is an English word. See
+password in this repository is an easily readable (and guessable) word. See
 [Not for production](#not-for-production).
 
 ## Why
 
-MongoDB Community Server moved from the AGPL v3 to the
-[Server Side Public License](https://github.com/mongodb/mongo/blob/master/LICENSE-Community.txt)
-on 16 October 2018, and remains SSPL v1 today. The Open Source Initiative
-[says the SSPL is not an open source license](https://opensource.org/blog/the-sspl-is-not-an-open-source-license),
-and Debian [ruled it unsuitable for `main`](https://bugs.debian.org/915537) and
-removed MongoDB from the archive in 2020. KoboToolbox stores every form submission
-in MongoDB, so that license sits in the middle of an otherwise redistributable
-stack.
+The Digital Public Goods Alliance deems MongoDB insufficiently "open-source"
+and [suggests
+FerretDB](https://github.com/DPGAlliance/dpg-resources/tree/5ae7fa39600d19adb3b2e2c8d31ac49aef5ad3a9/docs/platform-independence#examples-of-common-dependencies)
+as an alternative. MongoDB Community Server moved from the AGPL v3 to the
+[Server Side Public
+License](https://github.com/mongodb/mongo/blob/master/LICENSE-Community.txt) on
+16 October 2018, and remains SSPL v1 today. The Open Source Initiative [does
+not recognize the
+SSPL](https://opensource.org/blog/the-sspl-is-not-an-open-source-license).
+KoboToolbox, via its predecessor Formhub from the Sustainable Engineering Lab
+at Columbia University, has been using MongoDB [since January
+2011](https://github.com/SEL-Columbia/formhub/commit/d4699ddc0).
 
-FerretDB (Apache 2.0) speaks the MongoDB wire protocol and stores the data in
-PostgreSQL using the [DocumentDB](https://github.com/documentdb/documentdb)
-extension (MIT, originally from Microsoft, now a Linux Foundation project). If it
-is a sufficient substitute, the MongoDB dependency can be removed without touching
-a line of KoboToolbox application code — which is exactly what this repository
-tests.
-
-Read [Caveats](#caveats) before you get excited.
+FerretDB (Apache 2.0) strives to speak the MongoDB wire protocol and stores the
+data in PostgreSQL using the
+[DocumentDB](https://github.com/documentdb/documentdb) extension (MIT,
+originally from Microsoft, now a Linux Foundation project).
 
 ## What changed
 
 This is a fork of [kobo-docker](https://github.com/kobotoolbox/kobo-docker) at tag
 [`2.026.27e`](https://github.com/kobotoolbox/kobo-docker/releases/tag/2.026.27e).
 The FerretDB change is deliberately isolated in a single commit, so that the
-compatibility claim is easy to check — two files, 46 insertions, 20 deletions:
+compatibility claim is easy to check:
 
 ```console
 $ git log --format='%H' --grep='^Replace MongoDB with FerretDB' | xargs git show
@@ -60,6 +63,25 @@ The rest of the diff is unrelated to FerretDB — it is the work of making
 kobo-docker run standalone on one host without
 [kobo-install](https://github.com/kobotoolbox/kobo-install). See
 [Differences from upstream kobo-docker](#differences-from-upstream-kobo-docker).
+
+## Not for production
+
+Everything sensitive in this repository is a well-known example value, chosen to be
+readable rather than secret:
+
+| Setting | Value |
+| --- | --- |
+| Superuser | `super` / `admin` |
+| PostgreSQL (Django) | `kobo` / `hedgehog` |
+| PostgreSQL (FerretDB) | `ferret` / `badger` |
+| Redis | `squirrel` |
+| Enketo API key | `enketorabbit` |
+| `DJANGO_SECRET_KEY` | `insecure-demo-secret-key-not-for-production-use` |
+
+`DJANGO_DEBUG` is off and `DJANGO_ALLOWED_HOSTS` is restricted, but the stack is
+otherwise wide open: no TLS, no real secrets, no backups configured, and email
+written to the container log instead of sent. **Do not expose it to a network you
+do not control.**
 
 ## Quickstart
 
@@ -89,8 +111,9 @@ Open <http://kf.kobo.local> and log in:
 | --- | --- |
 | `super` | `admin` |
 
-To confirm the data really is in PostgreSQL rather than MongoDB, read your
-submission back out of it with `psql` after you have made one:
+To confirm the data really is in FerretDB's PostgreSQL instance rather than
+MongoDB, read your submission back out of it with `psql` after you have made
+one:
 
 ```console
 $ docker compose exec postgres_ferretdb psql -U ferret -d postgres -tAc \
@@ -126,9 +149,11 @@ single `docker compose up -d`:
   needed; pymongo 4.10.1 (as shipped in the KPI image) authenticates against
   FerretDB 2.7.0 with a plain `mongodb://` URL and no explicit `authMechanism`.
 - Log in as the superuser; the React interface loads.
+- Access the Django admin interface (`/admin`) and add a regular user.
+- Log in as that regular user.
 - Create a project and add a question.
 - Deploy it. KPI reaches Enketo Express and gets back a working form URL
-  (`http://ee.kobo.local/ee4gZfMO`), which loads and renders the form.
+  (`http://ee.kobo.local/…`), which loads and renders the form.
 - Submit data, both from the Enketo web form and by `POST`ing to the OpenRosa
   `/submission` endpoint (HTTP 201, `Successful submission.`).
 - The submission is visible through the KPI API and in the data table.
@@ -138,74 +163,6 @@ single `docker compose up -d`:
 The submission was also read back out of the FerretDB side directly, both with
 `mongosh` over the wire protocol and with `psql` against the DocumentDB tables, to
 confirm it is genuinely stored there and not cached somewhere in Django.
-
-## Caveats
-
-**Only the above is tested.** This exercise deliberately covers the smallest
-interesting path — one form, one question, one submission, one export. Large parts
-of KoboToolbox touch MongoDB in ways this does not exercise at all, including
-editing and deleting submissions, validation statuses, bulk operations, attachments
-and media, the `/reports` aggregations, and REST services. Some of those use
-aggregation pipeline stages and query operators that FerretDB may implement
-partially or not at all. **Assume nothing beyond the list above works until you
-test it.**
-
-**No performance claims.** A single submission says nothing about how FerretDB
-behaves under a real workload, and every query here ends up as SQL against
-PostgreSQL. KoboToolbox's MongoDB indexes and query patterns were tuned against
-MongoDB.
-
-**No migration path.** This starts from an empty database. Moving an existing
-KoboToolbox instance's submissions from MongoDB into FerretDB is a separate
-problem and is not addressed here.
-
-**Transactions are not supported.** FerretDB's own
-[compatibility table](https://docs.ferretdb.io/migration/compatibility/) marks
-`commitTransaction` and `abortTransaction` as not implemented, though sessions
-themselves work. `bulkWrite` is also unimplemented, as are capped collections.
-Change streams have been [an open issue since 2021](https://github.com/FerretDB/FerretDB/issues/175).
-TTL indexes *are*
-[supported](https://docs.ferretdb.io/guides/ttl-indexes/), with caveats: single
-field only, `Date` type only, swept every 60 seconds, and documents inserted before
-the index exists may not be affected.
-
-Note that FerretDB publishes no stage-by-stage aggregation pipeline compatibility
-matrix — its docs list nine stages "neutrally" and hedge with "some of the
-aggregation stages". `$lookup`, `$facet`, `$merge` and friends are simply
-unmentioned, as are `$where` and JavaScript execution. So there is no way to check
-in advance whether a given KoboToolbox query will work; you have to run it. Since
-FerretDB translates to SQL and embeds no JavaScript engine, anything relying on
-server-side JS almost certainly will not.
-
-**FerretDB's project health is worth a look before you depend on it.** As of
-August 2026: the latest release is v2.7.0 from November 2025, `main` has had no
-commits since February 2026, all four CI badges in the README are failing, and the
-official website at ferretdb.com has been serving an expired-Squarespace 404 since
-roughly May 2026 — [reported in May and still unanswered](https://github.com/FerretDB/FerretDB/issues/5650).
-The [documentation](https://docs.ferretdb.io/) and blog subdomains are still up,
-and the docs are versioned ahead of any shipped release. There is no announcement
-of a shutdown or acquisition either way, so draw your own conclusions; the code is
-Apache 2.0 and the DocumentDB extension underneath it is actively developed under
-the Linux Foundation.
-
-## Not for production
-
-Everything sensitive in this repository is a well-known example value, chosen to be
-readable rather than secret:
-
-| Setting | Value |
-| --- | --- |
-| Superuser | `super` / `admin` |
-| PostgreSQL (Django) | `kobo` / `hedgehog` |
-| PostgreSQL (FerretDB) | `ferret` / `badger` |
-| Redis | `squirrel` |
-| Enketo API key | `enketorabbit` |
-| `DJANGO_SECRET_KEY` | `insecure-demo-secret-key-not-for-production-use` |
-
-`DJANGO_DEBUG` is off and `DJANGO_ALLOWED_HOSTS` is restricted, but the stack is
-otherwise wide open: no TLS, no real secrets, no backups configured, and email
-written to the container log instead of sent. **Do not expose it to a network you
-do not control.**
 
 ## Differences from upstream kobo-docker
 
