@@ -1,222 +1,275 @@
-# kobo-docker
+# KoboToolbox on FerretDB
+
+A minimal, single-host [KoboToolbox](https://www.kobotoolbox.org) deployment that
+uses [FerretDB](https://github.com/FerretDB/FerretDB) in place of MongoDB.
 
-1. [Introduction](#introduction)
-1. [_Two PostgreSQL databases are now required_](#two-postgresql-databases-are-now-required)
-1. [Important notice when upgrading from commit `5c2ef02` (March 4, 2019) or earlier](#important-notice-when-upgrading-from-commit-5c2ef02-march-4-2019-or-earlier)
-1. [Important notice when upgrading from commit between `51aeccb` (March 11, 2019) and `2.022.44` (November 17, 2022)](#important-notice-when-upgrading-from-commit-between-51aeccb-march-11-2019-and-202244-november-17-2022)
-1. [Important notice when upgrading from commit `e2d3e82` (July 7, 2026) or earlier](#important-notice-when-upgrading-from-commit-e2d3e82-july-7-2026-or-earlier)
-1. [Architecture](#architecture)
-1. [Setup procedure](#setup-procedure)
-1. [Usage](#usage)
-    - Start/stop
-    - Backups
-    - Restore backups
-    - Maintenance
-1. [Troubleshooting](#troubleshooting)
-1. [Redis performance](#redis-performance)
-
-
-## Introduction
-
-kobo-docker is used to run a copy of the [KoboToolbox](http://www.kobotoolbox.org) survey data collection platform on a machine of your choosing. It relies on [Docker](https://docker.com) to separate the different parts of KoBo into different containers (which can be thought of as lighter-weight virtual machines) and [Docker Compose](https://docs.docker.com/compose/) to configure, run, and connect those containers.
-
-
-## _Two PostgreSQL databases are now required_
-
-Prior to release [`2.020.18`](https://github.com/kobotoolbox/kobo-docker/releases/tag/2.020.18),
-[KPI](https://github.com/kobotoolbox/kpi) and
-[KoBoCAT](https://github.com/kobotoolbox/kobocat) both shared a common PostgreSQL
-database. They now each have their own, separate databases.
-**If you are upgrading an existing single-database installation, you must follow [these instructions](https://community.kobotoolbox.org/t/upgrading-to-separate-databases-for-kpi-and-kobocat/7202)** to migrate the KPI tables to a new database and adjust your configuration appropriately.
-This assumes your last upgrade was **more recent** than March 4, 2019. If not, you must [upgrade your databases](#important-notice-when-upgrading-from-commit-5c2ef02-march-4-2019-or-earlier) before proceeding.
-
-If you do not want to upgrade at this time, please use the [`shared-database-obsolete`](https://github.com/kobotoolbox/kobo-docker/tree/shared-database-obsolete) branch instead.
-
-
-## Important notice when upgrading from commit [`5c2ef02` (March 4, 2019)](https://github.com/kobotoolbox/kobo-docker/commit/5c2ef0273339bee5c374830f72e52945947042a8) or earlier
-
-Running current releases of KoboToolbox requires you to upgrade your PostgreSQL and MongoDB databases. Please follow [these instructions](./doc/March-2019-Upgrade.md).
-
-If you do not, the application may not start or your data may not be visible.
-
-## Important notice when upgrading from commit between [`51aeccb` (March 11, 2019)](https://github.com/kobotoolbox/kobo-docker/commit/51aeccb91316d640f30e28190b936ae48d56c468) and [`2.022.44` (November 17, 2022)](https://github.com/kobotoolbox/kobo-docker/releases/tag/2.022.44)
-
-Running current releases of KoboToolbox requires you to upgrade your PostgreSQL and MongoDB databases. Please follow [these instructions](./doc/November-2022-Upgrade.md).
-
-If you do not, the application may not start or your data may not be visible.
-
-## Important notice when upgrading from commit `e2d3e82` (July 7, 2026) or earlier
-
-Running current releases of KoboToolbox requires you to upgrade your MongoDB database. Please follow [these instructions](./doc/June-2026-Upgrade-MongoDB8.md).
-
-If you do not, the application may not start or your data may not be visible.
-
-## Architecture
-
-See [doc/container-diagram.md](./doc/container-diagram.md) for a diagram of the containers that make up a running kobo-docker system and their connections.
-
-### Secure your installation
-This version of kobo-docker does **not** expose backend container ports, but [previous versions did](https://github.com/kobotoolbox/kobo-docker/pull/280), relying on a firewall to prevent unauthorized access. You should always verify that your database ports (by default 5432, 27017, 6379, 6380) are not accessible to the public.
-
-If you want to use kobo-docker with separate front-end and back-end servers, you will need to expose ports, and **you MUST use a firewall**. The firewall is required to allow only the `frontend` containers to access PostgreSQL, Redis, and MongoDB.
-
-
-## Setup procedure
-
-This procedure has been simplified by using [kobo-install](https://github.com/kobotoolbox/kobo-install "").
-Please use it to install kobo-docker.
-
-Already have an existing installation? Please see below.
-
-1. **Migrating from RabbitMQ to Redis as the Celery (asynchronous task) broker**
-
-    The easiest way is to rely on [kobo-install](https://github.com/kobotoolbox/kobo-install) to generate the correct environment files.
-
-    If you want to change it manually, edit:
-
-    - `kobo-env/envfiles/kpi.txt`
-        ```diff
-        - KPI_BROKER_URL=amqp://kpi:kpi@rabbit.[internal domain name]:5672/kpi
-        + KPI_BROKER_URL=redis://redis-main.[internal domain name]:6389/1
-        ```
-    - `kobo-env/envfiles/kobocat.txt`
-        ```diff
-        - KOBOCAT_BROKER_URL=amqp://kobocat: kobocat@rabbit.[internal domain name]:5672/kobocat
-        + KOBOCAT_BROKER_URL=redis://redis-main.[internal domain name]:6389/2
-        ```
-
-1. **Load balancing and redundancy**
-
-    1. Load balancing
-        kobo-docker has two different composer files. One for `frontend` and one for `backend`.
-
-        1. `frontend`:
-            - NGINX
-            - [KoBoCAT](https://github.com/kobotoolbox/kobocat)
-            - [KPI](https://github.com/kobotoolbox/kpi)
-            - [Enketo Express](https://github.com/enketo/enketo-express)
-
-        1. `backend`:
-            - PostgreSQL
-            - MongoDB
-            - Redis
-
-        Docker-compose for `frontend` can be started on its own server, same thing for `backend`. Users can start as many front-end servers they want. A load balancer can spread the traffic between front-end servers.
-        kobo-docker uses (private) domain names between `frontend` and `backend`.
-        It's fully customizable in configuration files. Once again, [kobo-install](https://github.com/kobotoolbox/kobo-install) does simplify the job by creating the configuration files for you.
-
-    1. Redundancy
-        `Backend` containers not redundant yet. Only `PostgreSQL` can be configured in `Primary/Secondary` mode where `Secondary` is a real-time read-only replica.
-
-    This is a diagram that shows how kobo-docker can be used for a load-balanced/(almost) redundant solution.
-
-    _NB: The diagram is based on AWS infrastructure, but it's not required to host your environment there._
-
-    ![aws diagram](./doc/aws-diagram.svg)
-
-## Usage
-It's recommended to create `*.override.yml` docker-compose files to customize your environment. It makes easier to update. 
-Samples are provided. Remove `.sample` extension and update them to match your environment. 
-
-- `docker-compose.frontend.override.yml`
-- `docker-compose.backend.primary.override.yml`
-- `docker-compose.backend.secondary.override.yml` (if a PostgreSQL replica is used)
-
-1. **Start/start containers** 
-
-    ```
-    # Start
-    $kobo-docker> docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml up -d  
-    $kobo-docker> docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml up -d
-   
-    # Stop
-    $kobo-docker> docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml stop  
-    $kobo-docker> docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml stop
-    ```
-
-1. **Backups**
-
-    Automatic, periodic backups of KoBoCAT media, MongoDB, PostgreSQL and Redis can be individually enabled by uncommenting (and optionally customizing) the `*_BACKUP_SCHEDULE` variables in your envfiles.
-
-     - `deployments/envfiles/databases.txt` (MongoDB, PostgreSQL, Redis)
-     - `deployments/envfiles/kobocat.txt` (KoBoCat media)
-
-    When enabled, timestamped backups will be placed in backups/kobocat, backups/mongo, backups/postgres and backups/redis respectively.
-
-    If `AWS` credentials and `AWS S3` backup bucket name are provided, the backups are created directly on `S3`.
-
-    Backups **on disk** can also be manually triggered when kobo-docker is running by executing the the following commands:
-
-    ```
-    $kobo-docker> docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml exec kobocat /srv/src/kobocat/docker/backup_media.bash
-    $kobo-docker> docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml exec mongo bash /kobo-docker-scripts/backup-to-disk.bash
-    $kobo-docker> docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml exec -e PGUSER=kobo postgres bash /kobo-docker-scripts/backup-to-disk.bash
-    $kobo-docker> docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml exec redis_main bash /kobo-docker-scripts/backup-to-disk.bash
-    ```
-
-1. **Restore backups**
-
-    Commands should be run within containers.
-
-     - MongoDB: `mongorestore --archive=<path/to/mongo.backup.gz> --gzip`
-     - PostgreSQL: `pg_restore -U kobo -d kobotoolbox -c "<path/to/postgres.pg_dump>"`
-     - Redis: `gunzip <path/to/redis.rdb.gz> && mv <path/to/extracted_redis.rdb> /data/enketo-main.rdb`
-
-1. **Maintenance mode**
-
-    There is one composer file `docker-compose.maintenance.yml` can be used to put `KoboToolbox` in maintenance mode.  
-    Like front-end or back-end containers, a `docker-compose.maintenance.yml.sample` file is provided to help you to customize your settings.
-    First, copy `docker-compose.maintenance.yml.sample` to `docker-compose.maintenance.yml`.
-
-    There are 4 variables that can be customized in `docker-compose.maintenance.override.yml`:
-
-    - `ETA` e.g. `2 hours`
-    - `DATE_STR` e.g. `Monday, November 26 at 02:00 GMT`
-    - `DATE_ISO` e.g. `20181126T02`
-    - `EMAIL` e.g. `support@example.com`
-
-    NGINX container has to be stopped before launching the maintenance container.
-
-    **Start**
-
-    ```
-    docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml stop nginx
-    docker-compose -f docker-compose.maintenance.yml -f docker-compose.maintenance.override.yml up -d
-    ```
-
-    **Stop**
-
-    ```
-    docker-compose -f docker-compose.maintenance.yml -f docker-compose.maintenance.override.yml down
-    docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml up -d nginx
-    ```
-
-## Troubleshooting
-
-- ### Basic troubleshooting
-    You can confirm that your containers are running with `docker ps`.
-    To inspect the log output from:
-     
-     - the frontend containers, execute `docker-compose -f docker-compose.frontend.yml -f docker-compose.frontend.override.yml logs -f`
-     - the primary backend containers, execute `docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml logs -f`
-     - the secondary backend container, execute `docker-compose -f docker-compose.backend.secondary.yml -f docker-compose.backend.secondary.override.yml logs -f`
-       
-    For a specific container use e.g. `docker-compose -f docker-compose.backend.primary.yml -f docker-compose.backend.primary.override.yml logs -f redis_main`.
-    
-    The documentation for Docker can be found at https://docs.docker.com.
-
-- ### Django debugging
-    Developers can use [PyDev](http://www.pydev.org/)'s [remote, graphical Python debugger](http://www.pydev.org/manual_adv_remote_debugger.html) to debug Python/Django code. To enable for the `kpi` container:
-
-    1. Specify the mapping(s) between target Python source/library paths on the debugging machine to the locations of those files/directories inside the container by customizing and uncommenting the `KPI_PATH_FROM_ECLIPSE_TO_PYTHON_PAIRS` variable in [`envfiles/kpi.txt`](./envfiles/kpi.txt).
-    1. Share the source directory of the PyDev remote debugger plugin into the container by customizing (taking care to note the actual location of the version-numbered directory) and uncommenting the relevant `volumes` entry in your `docker-compose.yml`.
-    1. To ensure PyDev shows you the same version of the code as is being run in the container, share your live version of any target Python source/library files/directories into the container by customizing and uncommenting the relevant `volumes` entry in your `docker-compose.yml`.
-    1. Start the PyDev remote debugger server and ensure that no firewall or other settings will prevent the containers from connecting to your debugging machine at the reported port.
-    1. Breakpoints can be inserted with: `import pydevd; pydevd.settrace('${DEBUGGING_MACHINE_IP}')`.
-
-    Remote debugging in the `kobocat` container can be accomplished in a similar manner.
-
-
-## Redis performance
-Please take a look at [https://www.techandme.se/performance-tips-for-redis-cache-server/](https://www.techandme.se/performance-tips-for-redis-cache-server/)
-to get rid of Warning message when starting redis containers
+It works, for a narrow definition of "works". You can create a form, deploy it,
+submit data to it, see the submission in the web interface, and export it to XLSX,
+with FerretDB storing the submissions in PostgreSQL and no MongoDB anywhere in the
+stack. Nothing beyond that is tested, and FerretDB's own website has been expired
+since May 2026 — see [Caveats](#caveats).
+
+This is a **demonstration of compatibility, not a production deployment**. Every
+password in this repository is an English word. See
+[Not for production](#not-for-production).
+
+## Why
+
+MongoDB Community Server moved from the AGPL v3 to the
+[Server Side Public License](https://github.com/mongodb/mongo/blob/master/LICENSE-Community.txt)
+on 16 October 2018, and remains SSPL v1 today. The Open Source Initiative
+[says the SSPL is not an open source license](https://opensource.org/blog/the-sspl-is-not-an-open-source-license),
+and Debian [ruled it unsuitable for `main`](https://bugs.debian.org/915537) and
+removed MongoDB from the archive in 2020. KoboToolbox stores every form submission
+in MongoDB, so that license sits in the middle of an otherwise redistributable
+stack.
+
+FerretDB (Apache 2.0) speaks the MongoDB wire protocol and stores the data in
+PostgreSQL using the [DocumentDB](https://github.com/documentdb/documentdb)
+extension (MIT, originally from Microsoft, now a Linux Foundation project). If it
+is a sufficient substitute, the MongoDB dependency can be removed without touching
+a line of KoboToolbox application code — which is exactly what this repository
+tests.
+
+Read [Caveats](#caveats) before you get excited.
+
+## What changed
+
+This is a fork of [kobo-docker](https://github.com/kobotoolbox/kobo-docker) at tag
+[`2.026.27e`](https://github.com/kobotoolbox/kobo-docker/releases/tag/2.026.27e).
+The FerretDB change is deliberately isolated in a single commit, so that the
+compatibility claim is easy to check — two files, 46 insertions, 20 deletions:
+
+```console
+$ git log --format='%H' --grep='^Replace MongoDB with FerretDB' | xargs git show
+```
+
+The substance of it is in [`docker-compose.backend.yml`](docker-compose.backend.yml):
+the `mongo:8.0` service is replaced by `ghcr.io/ferretdb/ferretdb:2.7.0` plus a
+`postgres_ferretdb` service running FerretDB's PostgreSQL+DocumentDB image. The
+service keeps the name `mongo` and the `mongo.kobo.private` network alias, so KPI,
+KoboCAT, Celery and `wait_for_mongo.bash` reach it without knowing the difference.
+In [`env/envfiles/databases.txt`](env/envfiles/databases.txt), `MONGO_DB_URL`
+points at it with an ordinary `mongodb://` URL.
+
+**No KoboToolbox application code is modified, patched or rebuilt.** The images are
+the published `kobotoolbox/kpi:2.026.27e` and
+`kobotoolbox/enketo-express-extra-widgets:7.6.3` from Docker Hub.
+
+The rest of the diff is unrelated to FerretDB — it is the work of making
+kobo-docker run standalone on one host without
+[kobo-install](https://github.com/kobotoolbox/kobo-install). See
+[Differences from upstream kobo-docker](#differences-from-upstream-kobo-docker).
+
+## Quickstart
+
+Requires Docker with Compose v2, on Linux, and about 8 GB of disk for the images.
+
+Add the demo hostnames to your `/etc/hosts`:
+
+```
+127.0.0.1  kf.kobo.local kc.kobo.local ee.kobo.local
+```
+
+Then:
+
+```console
+$ git clone https://github.com/kobotoolbox/kobo-ferretdb.git
+$ cd kobo-ferretdb
+$ docker compose up -d
+```
+
+The `.env` file in the repository sets `COMPOSE_FILE` to both compose files, so
+`docker compose up` needs no arguments. First boot takes a few minutes to pull the
+images; after that the stack reaches HTTP 200 in about 80 seconds.
+
+Open <http://kf.kobo.local> and log in:
+
+| Username | Password |
+| --- | --- |
+| `super` | `admin` |
+
+To confirm the data really is in PostgreSQL rather than MongoDB, read your
+submission back out of it with `psql` after you have made one:
+
+```console
+$ docker compose exec postgres_ferretdb psql -U ferret -d postgres -tAc \
+    "select documentdb_core.bson_to_json_string(document)
+       from documentdb_api.collection('formhub', 'instances')"
+{ "_id" : { "$numberInt" : "1" }, "formhub/uuid" : "d66aa8a4…",
+  "favorite_animal" : "ferret", … }
+```
+
+To stop:
+
+```console
+$ docker compose down
+```
+
+Data lives in bind mounts under `.vols/`, not in named Docker volumes, so
+`docker compose down -v` does **not** discard it. To reset completely, remove that
+directory — parts of it are owned by container users, so this needs root:
+
+```console
+$ docker compose down
+$ sudo rm -rf .vols log backups
+```
+
+## Verified working
+
+Tested from a clean slate — no data directories, no manual database setup — with a
+single `docker compose up -d`:
+
+- All 13 containers start and stay up.
+- The `formhub` database and its `instances` collection **are created
+  automatically** on first write. No manual `use formhub` or seed document is
+  needed; pymongo 4.10.1 (as shipped in the KPI image) authenticates against
+  FerretDB 2.7.0 with a plain `mongodb://` URL and no explicit `authMechanism`.
+- Log in as the superuser; the React interface loads.
+- Create a project and add a question.
+- Deploy it. KPI reaches Enketo Express and gets back a working form URL
+  (`http://ee.kobo.local/ee4gZfMO`), which loads and renders the form.
+- Submit data, both from the Enketo web form and by `POST`ing to the OpenRosa
+  `/submission` endpoint (HTTP 201, `Successful submission.`).
+- The submission is visible through the KPI API and in the data table.
+- Export to XLSX. The Celery task completes and the downloaded workbook contains
+  the submitted value and the question label.
+
+The submission was also read back out of the FerretDB side directly, both with
+`mongosh` over the wire protocol and with `psql` against the DocumentDB tables, to
+confirm it is genuinely stored there and not cached somewhere in Django.
+
+## Caveats
+
+**Only the above is tested.** This exercise deliberately covers the smallest
+interesting path — one form, one question, one submission, one export. Large parts
+of KoboToolbox touch MongoDB in ways this does not exercise at all, including
+editing and deleting submissions, validation statuses, bulk operations, attachments
+and media, the `/reports` aggregations, and REST services. Some of those use
+aggregation pipeline stages and query operators that FerretDB may implement
+partially or not at all. **Assume nothing beyond the list above works until you
+test it.**
+
+**No performance claims.** A single submission says nothing about how FerretDB
+behaves under a real workload, and every query here ends up as SQL against
+PostgreSQL. KoboToolbox's MongoDB indexes and query patterns were tuned against
+MongoDB.
+
+**No migration path.** This starts from an empty database. Moving an existing
+KoboToolbox instance's submissions from MongoDB into FerretDB is a separate
+problem and is not addressed here.
+
+**Transactions are not supported.** FerretDB's own
+[compatibility table](https://docs.ferretdb.io/migration/compatibility/) marks
+`commitTransaction` and `abortTransaction` as not implemented, though sessions
+themselves work. `bulkWrite` is also unimplemented, as are capped collections.
+Change streams have been [an open issue since 2021](https://github.com/FerretDB/FerretDB/issues/175).
+TTL indexes *are*
+[supported](https://docs.ferretdb.io/guides/ttl-indexes/), with caveats: single
+field only, `Date` type only, swept every 60 seconds, and documents inserted before
+the index exists may not be affected.
+
+Note that FerretDB publishes no stage-by-stage aggregation pipeline compatibility
+matrix — its docs list nine stages "neutrally" and hedge with "some of the
+aggregation stages". `$lookup`, `$facet`, `$merge` and friends are simply
+unmentioned, as are `$where` and JavaScript execution. So there is no way to check
+in advance whether a given KoboToolbox query will work; you have to run it. Since
+FerretDB translates to SQL and embeds no JavaScript engine, anything relying on
+server-side JS almost certainly will not.
+
+**FerretDB's project health is worth a look before you depend on it.** As of
+August 2026: the latest release is v2.7.0 from November 2025, `main` has had no
+commits since February 2026, all four CI badges in the README are failing, and the
+official website at ferretdb.com has been serving an expired-Squarespace 404 since
+roughly May 2026 — [reported in May and still unanswered](https://github.com/FerretDB/FerretDB/issues/5650).
+The [documentation](https://docs.ferretdb.io/) and blog subdomains are still up,
+and the docs are versioned ahead of any shipped release. There is no announcement
+of a shutdown or acquisition either way, so draw your own conclusions; the code is
+Apache 2.0 and the DocumentDB extension underneath it is actively developed under
+the Linux Foundation.
+
+## Not for production
+
+Everything sensitive in this repository is a well-known example value, chosen to be
+readable rather than secret:
+
+| Setting | Value |
+| --- | --- |
+| Superuser | `super` / `admin` |
+| PostgreSQL (Django) | `kobo` / `hedgehog` |
+| PostgreSQL (FerretDB) | `ferret` / `badger` |
+| Redis | `squirrel` |
+| Enketo API key | `enketorabbit` |
+| `DJANGO_SECRET_KEY` | `insecure-demo-secret-key-not-for-production-use` |
+
+`DJANGO_DEBUG` is off and `DJANGO_ALLOWED_HOSTS` is restricted, but the stack is
+otherwise wide open: no TLS, no real secrets, no backups configured, and email
+written to the container log instead of sent. **Do not expose it to a network you
+do not control.**
+
+## Differences from upstream kobo-docker
+
+Besides swapping MongoDB for FerretDB, this fork drops the parts of upstream that
+exist to support multi-host production deployments, so that the demo is one clone
+and one command.
+
+**No kobo-install.** Upstream expects
+[kobo-install](https://github.com/kobotoolbox/kobo-install) to generate a sibling
+`kobo-env/` directory of environment files with random secrets. Here they are
+committed in [`env/`](env/) with example values. `env/envfiles/domains.txt` is a new
+file: every service reads it, but upstream ships no template for it because
+kobo-install writes it.
+
+**One Compose project instead of two.** Upstream runs
+`docker-compose.backend.yml` and `docker-compose.frontend.yml` as separate projects
+on separate hosts, joined by an externally created network. Here `.env` sets
+`COMPOSE_FILE` to both and they share one bridge network, keeping the
+`*.kobo.private` and `*.docker.internal` aliases upstream's configuration expects.
+
+**Network aliases instead of `extra_hosts`.** Parts of KoboToolbox deliberately use
+*public* URLs for server-to-server calls — KPI posts to `ENKETO_URL` to deploy a
+form, and Enketo posts submissions back to `KOBOCAT_URL`. Upstream makes those
+resolve inside containers by giving each one an `extra_hosts` entry pointing at the
+host's LAN IP, autodetected by kobo-install. This fork instead aliases
+`kf.kobo.local`, `kc.kobo.local` and `ee.kobo.local` onto the nginx container, so
+Docker's own DNS answers.
+
+That is what makes `127.0.0.1` usable in `/etc/hosts`: containers no longer consult
+the host's name resolution at all, so the host is free to point those names at
+loopback. **This is verified on Linux only.** Where the Docker daemon runs inside a
+VM — Docker Desktop on macOS or Windows — `127.0.0.1` inside the VM is not the same
+address as on your desktop, and you may need the host's LAN IP instead. That is the
+limitation upstream's `extra_hosts` approach works around.
+
+**None of upstream's `mongo/` scripts are used.** They configure a replica set and
+create users through `mongosh`, which FerretDB neither needs nor supports; FerretDB
+authenticates clients against PostgreSQL roles instead. The directory is left in
+place, unreferenced, to keep the diff small.
+
+**Nothing operational is configured.** No S3, no backup schedules, no TLS, no
+maintenance mode, and email goes to the log. Upstream's machinery for all of that
+is still in the repository but unused.
+
+## Versions
+
+| Component | Version |
+| --- | --- |
+| kobo-docker base | `2.026.27e` |
+| KPI (Django 5.2, pymongo 4.10.1) | `kobotoolbox/kpi:2.026.27e` |
+| Enketo Express | `kobotoolbox/enketo-express-extra-widgets:7.6.3` |
+| FerretDB | `ghcr.io/ferretdb/ferretdb:2.7.0` |
+| FerretDB storage | `ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0` |
+| PostgreSQL (Django) | `postgis/postgis:14-3.2` |
+| Redis | `redis:7.2` |
+| nginx | `nginx:1.27` |
+
+FerretDB 2.7.0 reports itself as MongoDB 7.0.77, wire protocol version 21.
+
+Version matters here: **FerretDB 1.x will not work.** It supported only `PLAIN`
+authentication, so pymongo's default SCRAM negotiation fails against it. FerretDB
+2.x supports `SCRAM-SHA-256`, which pymongo negotiates automatically, which is why
+`MONGO_DB_URL` needs no `authMechanism` parameter.
+
+## License
+
+Upstream kobo-docker's license applies; see [LICENSE](LICENSE).
