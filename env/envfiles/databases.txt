@@ -1,21 +1,18 @@
 #--------------------------------------------------------------------------------
 # MONGO
 #--------------------------------------------------------------------------------
-# These `KOBO_POSTGRES_` settings only affect the postgres container itself and the
-# `wait_for_mongo.bash` init script that runs within the kpi and kobocat.
-# Please see kobocat.txt to set container variables
+# These `KOBO_MONGO_` settings only affect the mongo container itself and the
+# `wait_for_mongo.bash` init script that runs within the kpi and kobocat
+# containers. To control what KPI/KoboCAT connect to, see `MONGO_DB_URL`.
 KOBO_MONGO_PORT=27017
-KOBO_MONGO_HOST=mongo.domain.name
+KOBO_MONGO_HOST=mongo.kobo.private
 MONGO_INITDB_ROOT_USERNAME=root
-MONGO_INITDB_ROOT_PASSWORD=kobo
+MONGO_INITDB_ROOT_PASSWORD=otter
 MONGO_INITDB_DATABASE=formhub
 KOBO_MONGO_USERNAME=kobo
-KOBO_MONGO_PASSWORD=kobo
+KOBO_MONGO_PASSWORD=weasel
 MONGO_DB_NAME=formhub
-MONGO_DB_URL=mongodb://kobo:kobo@mongo.domain.name:27017/formhub
-
-# Default MongoDB backup schedule is weekly at 01:00 AM UTC on Sunday.
-#MONGO_BACKUP_SCHEDULE=0 1 * * 0
+MONGO_DB_URL=mongodb://kobo:weasel@mongo.kobo.private:27017/formhub
 
 #--------------------------------------------------------------------------------
 # POSTGRES
@@ -26,33 +23,25 @@ MONGO_DB_URL=mongodb://kobo:kobo@mongo.domain.name:27017/formhub
 # containers. To control Django database connections, please see the
 # `DATABASE_URL` environment variable.
 POSTGRES_PORT=5432
-POSTGRES_HOST=postgres.domain.name
+POSTGRES_HOST=postgres.kobo.private
 POSTGRES_USER=kobo
-POSTGRES_PASSWORD=kobo
+POSTGRES_PASSWORD=hedgehog
 KC_POSTGRES_DB=kobocat
 KPI_POSTGRES_DB=koboform
 
 # Postgres database used by kpi and kobocat Django apps
-KC_DATABASE_URL=postgis://kobo:kobo@postgres.domain.name:5432/kobotoolbox
-KPI_DATABASE_URL=postgis://kobo:kobo@postgres.domain.name:5432/kobotoolbox
-
-# Default Postgres backup schedule is weekly at 02:00 AM UTC on Sunday.
-#POSTGRES_BACKUP_SCHEDULE=0 2 * * 0
+KC_DATABASE_URL=postgis://kobo:hedgehog@postgres.kobo.private:5432/kobocat
+KPI_DATABASE_URL=postgis://kobo:hedgehog@postgres.kobo.private:5432/koboform
+DATABASE_URL=postgis://kobo:hedgehog@postgres.kobo.private:5432/koboform
 
 #--------------------------------------------------------------------------------
 # REDIS
 #--------------------------------------------------------------------------------
 
-#REDIS_BACKUP_SCHEDULE=0 3 * * 0
-
-REDIS_SESSION_URL=redis://:kobo@redis-cache.kobo.private:6380/2
-REDIS_PASSWORD=kobo
-CACHE_URL=redis://:kobo@redis-cache.kobo.private:6380/5
+REDIS_PASSWORD=squirrel
+REDIS_SESSION_URL=redis://:squirrel@redis-cache.kobo.private:6380/2
+CACHE_URL=redis://:squirrel@redis-cache.kobo.private:6380/5
 # In bytes, uncomment to cap Redis Cache memory
-# REDIS_CACHE_MAX_MEMORY=
-
-REDIS_PASSWORD=${REDIS_PASSWORD}
-CACHE_URL=redis://:kobo@redis-cache.kobo.private:6380/5
 REDIS_CACHE_MAX_MEMORY=
-SERVICE_ACCOUNT_BACKEND_URL=redis://:kobo@redis-cache.kobo.private:6380/6
-ENKETO_REDIS_MAIN_URL=redis://:kobo@redis-main.kobo.private:6379/0
+SERVICE_ACCOUNT_BACKEND_URL=redis://:squirrel@redis-cache.kobo.private:6380/6
+ENKETO_REDIS_MAIN_URL=redis://:squirrel@redis-main.kobo.private:6379/0

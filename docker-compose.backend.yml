@@ -5,17 +5,22 @@ services:
     image: postgis/postgis:14-3.2
     hostname: postgres
     env_file:
-      - ../kobo-env/envfiles/domains.txt
-      - ../kobo-env/envfiles/databases.txt
-      - ../kobo-env/envfiles/aws.txt
+      - ./env/envfiles/domains.txt
+      - ./env/envfiles/databases.txt
+      - ./env/envfiles/aws.txt
     volumes:
       - ./.vols/db:/var/lib/postgresql/data
       - ./backups/postgres:/srv/backups
       - ./log/postgres:/srv/logs
       - ./postgres:/kobo-docker-scripts
+      - ./env/postgres/conf/postgres.conf:/kobo-docker-scripts/conf/postgres.conf
     command: "bash /kobo-docker-scripts/entrypoint.sh"
     restart: always
     stop_grace_period: 5m
+    networks:
+      kobo-network:
+        aliases:
+          - postgres.kobo.private
 
   mongo:
     image: mongo:8.0
@@ -23,9 +28,9 @@ services:
     environment:
       - MONGO_DATA=/data/db
     env_file:
-      - ../kobo-env/envfiles/domains.txt
-      - ../kobo-env/envfiles/databases.txt
-      - ../kobo-env/envfiles/aws.txt
+      - ./env/envfiles/domains.txt
+      - ./env/envfiles/databases.txt
+      - ./env/envfiles/aws.txt
     volumes:
       - ./.vols/mongo:/data/db
       - ./backups/mongo:/srv/backups
@@ -34,13 +39,17 @@ services:
     restart: always
     command: "bash /kobo-docker-scripts/entrypoint.sh"
     stop_grace_period: 5m
+    networks:
+      kobo-network:
+        aliases:
+          - mongo.kobo.private
 
   redis_main:
     image: redis:7.2
     env_file:
-      - ../kobo-env/envfiles/domains.txt
-      - ../kobo-env/envfiles/databases.txt
-      - ../kobo-env/envfiles/aws.txt
+      - ./env/envfiles/domains.txt
+      - ./env/envfiles/databases.txt
+      - ./env/envfiles/aws.txt
     environment:
       - KOBO_REDIS_SERVER_ROLE=main
     volumes:
@@ -55,11 +64,15 @@ services:
     sysctls:
         - net.core.somaxconn=2048
     command: "bash /tmp/redis/entrypoint.sh"
+    networks:
+      kobo-network:
+        aliases:
+          - redis-main.kobo.private
 
   redis_cache:
     image: redis:7.2
     env_file:
-      - ../kobo-env/envfiles/databases.txt
+      - ./env/envfiles/databases.txt
     environment:
       - KOBO_REDIS_SERVER_ROLE=cache
     volumes:
@@ -72,3 +85,15 @@ services:
     sysctls:
         - net.core.somaxconn=2048
     command: "bash /tmp/redis/entrypoint.sh"
+    networks:
+      kobo-network:
+        aliases:
+          - redis-cache.kobo.private
+
+# Upstream splits the front end and back end into two Compose projects joined by
+# an external network, because they are meant to run on separate hosts. This demo
+# runs everything on one host in one project, so a single bridge network with the
+# `*.kobo.private` aliases upstream expects is enough.
+networks:
+  kobo-network:
+    driver: bridge
