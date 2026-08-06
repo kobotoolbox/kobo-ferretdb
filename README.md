@@ -1,4 +1,4 @@
-# KoboToolbox on FerretDB
+# KoboToolbox on FerretDB Proof of Concept
 
 A minimal, single-host [KoboToolbox](https://www.kobotoolbox.org) deployment that
 uses [FerretDB](https://github.com/FerretDB/FerretDB) in place of MongoDB.
